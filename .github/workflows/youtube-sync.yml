@@ -1,0 +1,54 @@
+name: Sync YouTube sermons and streams
+
+on:
+  schedule:
+    # 18:00 UTC every Sunday = 9:00 PM East Africa Time (UTC+3, no DST).
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youtube-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync sermons, streams, and thumbnails
+        run: npm run sync:youtube
+        env:
+          # Optional. Add the repository secret to use the YouTube Data API.
+          # Without it the script falls back to public feeds with no credentials.
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+
+      - name: Commit the refreshed site data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/data/youtube.generated.json public/youtube
+
+          if git diff --cached --quiet; then
+            echo "YouTube data is already up to date."
+            exit 0
+          fi
+
+          git commit -m "chore: sync YouTube sermons and live streams"
+          git pull --rebase
+          git push
